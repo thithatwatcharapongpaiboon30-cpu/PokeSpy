@@ -23,6 +23,7 @@ const SOCKET_URL = window.location.origin;
 export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [roomInput, setRoomInput] = useState('');
@@ -34,30 +35,53 @@ export default function App() {
   useEffect(() => {
     console.log('Initializing socket connection...');
     
-    // Test health check
-    fetch('/api/health')
-      .then(res => res.json())
-      .then(data => console.log('Server health check:', data))
-      .catch(err => console.error('Server health check failed:', err));
+    // Check if we are in a production-like environment (e.g. Vercel) where the backend might be missing
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (!res.ok) throw new Error('Backend unreachable');
+        const data = await res.json();
+        console.log('Server health check:', data);
+        setBackendStatus('online');
+      } catch (err) {
+        console.error('Server health check failed:', err);
+        setBackendStatus('offline');
+        setError('Backend server is unreachable. If you are on Vercel, please note that this app requires a persistent Node.js server for WebSockets.');
+      }
+    };
 
-    const newSocket = io();
+    checkHealth();
+
+    const newSocket = io({
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
     
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
       setIsConnected(true);
+      setBackendStatus('online');
       setError(null);
     });
 
     newSocket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
+      if (reason === 'io server disconnect') {
+        // the disconnection was initiated by the server, you need to reconnect manually
+        newSocket.connect();
+      }
     });
 
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err);
-      setError('Connection error. Please try refreshing.');
+      // Don't overwrite the "Vercel" error if it's already set
+      if (backendStatus !== 'offline') {
+        setError('Connecting to game server...');
+      }
     });
 
     newSocket.on('gameUpdate', (state: GameState) => {
@@ -162,9 +186,11 @@ export default function App() {
             <div>
               <h1 className="text-4xl font-black uppercase tracking-tighter">PokeSpy</h1>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                <div className={`w-2 h-2 rounded-full ${
+                  backendStatus === 'online' ? (isConnected ? 'bg-emerald-500' : 'bg-yellow-500 animate-pulse') : 'bg-red-500 animate-pulse'
+                }`} />
                 <span className="text-[10px] font-bold uppercase opacity-50">
-                  {isConnected ? 'Connected' : 'Connecting...'}
+                  {backendStatus === 'offline' ? 'Server Offline' : (isConnected ? 'Connected' : 'Connecting...')}
                 </span>
               </div>
             </div>
@@ -185,7 +211,12 @@ export default function App() {
             <div className="grid grid-cols-2 gap-4">
               <button 
                 onClick={createRoom}
-                className="bg-emerald-400 border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all"
+                disabled={backendStatus === 'offline'}
+                className={`border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
+                  backendStatus === 'offline' 
+                    ? 'bg-gray-300 cursor-not-allowed opacity-50' 
+                    : 'bg-emerald-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
+                }`}
               >
                 <Plus size={20} /> Create
               </button>
@@ -199,7 +230,12 @@ export default function App() {
                 />
                 <button 
                   onClick={joinRoom}
-                  className="w-full bg-blue-400 border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all"
+                  disabled={backendStatus === 'offline'}
+                  className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
+                    backendStatus === 'offline'
+                      ? 'bg-gray-300 cursor-not-allowed opacity-50'
+                      : 'bg-blue-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
+                  }`}
                 >
                   <LogIn size={20} /> Join
                 </button>
@@ -210,9 +246,19 @@ export default function App() {
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="bg-red-100 border-2 border-red-500 p-3 text-red-600 font-bold text-sm text-center"
+                className={`border-2 p-3 font-bold text-sm text-center ${
+                  backendStatus === 'offline' ? 'bg-red-100 border-red-500 text-red-600' : 'bg-yellow-100 border-yellow-500 text-yellow-700'
+                }`}
               >
                 {error}
+                {backendStatus === 'offline' && (
+                  <button 
+                    onClick={() => window.location.reload()}
+                    className="mt-2 block w-full text-xs underline uppercase"
+                  >
+                    Retry Connection
+                  </button>
+                )}
               </motion.div>
             )}
           </div>

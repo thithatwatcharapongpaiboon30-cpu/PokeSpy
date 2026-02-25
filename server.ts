@@ -10,6 +10,8 @@ const io = new Server(httpServer, {
   cors: {
     origin: '*',
   },
+  transports: ['polling', 'websocket'],
+  allowEIO3: true
 });
 
 const PORT = 3000;
