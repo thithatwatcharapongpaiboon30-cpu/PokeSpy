@@ -161,17 +161,30 @@ export function useP2PGame() {
         case 'SEND_MESSAGE':
           const player = state.players.find(p => p.id === conn.peer);
           if (!player || !player.isAlive) return;
-          if (state.players[state.currentPlayerIndex].id !== conn.peer) return;
 
-          state.messages.push({
-            playerId: conn.peer,
-            playerName: player.name,
-            text: data.text,
-            timestamp: Date.now(),
-            round: state.currentRound,
-          });
+          if (state.phase === 'PLAYING') {
+            if (state.players[state.currentPlayerIndex].id !== conn.peer) return;
+            state.messages.push({
+              playerId: conn.peer,
+              playerName: player.name,
+              text: data.text,
+              timestamp: Date.now(),
+              round: state.currentRound,
+            });
+            advanceTurn(state);
+          } else if (state.phase === 'DISCUSSION') {
+            state.messages.push({
+              playerId: conn.peer,
+              playerName: player.name,
+              text: data.text,
+              timestamp: Date.now(),
+              round: state.currentRound,
+              isDiscussion: true,
+            });
+          } else {
+            return;
+          }
           
-          advanceTurn(state);
           broadcastState(state);
           break;
 
@@ -325,6 +338,13 @@ export function useP2PGame() {
       lastVotedOut: null,
     };
     setGameState(initialState);
+    
+    // Register room as public
+    fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: myId, hostName: playerName, playerCount: 1 })
+    }).catch(err => console.error('Failed to register room:', err));
 
     peer.on('connection', (conn) => {
       console.log('Incoming connection from:', conn.peer);
@@ -419,6 +439,9 @@ export function useP2PGame() {
 
   const leaveRoom = () => {
     if (peer) {
+      if (isHost) {
+        fetch(`/api/rooms/${myId}`, { method: 'DELETE' }).catch(() => {});
+      }
       connections.forEach(c => c.close());
       setGameState(null);
       setIsHost(false);
@@ -460,6 +483,25 @@ export function useP2PGame() {
 
     return () => clearInterval(timer);
   }, [isHost, gameState, broadcastState]);
+
+  // Heartbeat for host
+  useEffect(() => {
+    if (!isHost || !myId || !gameState) return;
+    
+    const interval = setInterval(() => {
+      fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: myId, 
+          hostName: gameState.players[0].name, 
+          playerCount: gameState.players.length 
+        })
+      }).catch(() => {});
+    }, 30000); // Every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [isHost, myId, gameState]);
 
   return {
     gameState,

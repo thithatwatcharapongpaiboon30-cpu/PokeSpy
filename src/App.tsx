@@ -15,7 +15,8 @@ import {
   RefreshCw,
   Info,
   Copy,
-  Check
+  Check,
+  Shuffle
 } from 'lucide-react';
 import { useP2PGame } from './hooks/useP2PGame';
 
@@ -73,6 +74,23 @@ export default function App() {
     if (!roomInput.trim()) return setError('Please enter the Host ID');
     if (!myId) return setError('Still initializing connection. Please wait a few seconds...');
     p2pJoinRoom(roomInput.trim(), playerName);
+  };
+
+  const handleJoinRandomRoom = async () => {
+    if (!playerName.trim()) return setError('Please enter your name first');
+    if (!myId) return setError('Still initializing connection. Please wait a few seconds...');
+    
+    try {
+      const res = await fetch('/api/rooms/random');
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'No public rooms found');
+      }
+      const room = await res.json();
+      p2pJoinRoom(room.id, playerName);
+    } catch (err: any) {
+      setError(err.message || 'Failed to find a random room');
+    }
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -181,6 +199,17 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            <button 
+              onClick={handleJoinRandomRoom}
+              className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
+                !myId 
+                  ? 'bg-gray-100 text-gray-400 cursor-wait' 
+                  : 'bg-yellow-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
+              }`}
+            >
+              <Shuffle size={20} /> Join Random Lobby
+            </button>
 
             {error && (
               <motion.div 
@@ -384,6 +413,8 @@ export default function App() {
                     <span className="text-xs font-bold uppercase">{msg.playerName}</span>
                   </div>
                   <div className={`max-w-[80%] p-3 border-2 border-black font-bold ${
+                    msg.isDiscussion ? 'italic border-dashed' : ''
+                  } ${
                     msg.playerId === myId ? 'bg-yellow-100 shadow-[-4px_4px_0px_0px_rgba(0,0,0,1)]' : 'bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                   }`}>
                     {msg.text}
@@ -397,26 +428,32 @@ export default function App() {
             <AnimatePresence>
               {gameState.phase === 'DISCUSSION' && (
                 <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-8 text-center z-20"
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="absolute top-0 left-0 right-0 bg-black/90 text-white p-4 flex items-center justify-between z-20 border-b-2 border-black"
                 >
-                  <Timer size={64} className="text-white mb-6 animate-pulse" />
-                  <h2 className="text-4xl font-black text-white uppercase mb-4">Discussion Period</h2>
-                  <p className="text-white/70 font-bold uppercase mb-8">Discuss who you think the imposter is!</p>
+                  <div className="flex items-center gap-3">
+                    <Timer size={20} className="text-yellow-400 animate-pulse" />
+                    <div>
+                      <h2 className="text-sm font-black uppercase leading-none">Discussion Period</h2>
+                      <p className="text-[10px] font-bold uppercase opacity-60">Chat with others to find the imposter!</p>
+                    </div>
+                  </div>
                   
-                  <div className="flex flex-col items-center gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-[10px] font-black uppercase">
+                        {gameState.players.filter(p => p.isAlive && p.hasSkippedDiscussion).length} / {Math.ceil(gameState.players.filter(p => p.isAlive).length / 2) + 1} voted skip
+                      </p>
+                    </div>
                     <button 
                       onClick={skipDiscussion}
                       disabled={me?.hasSkippedDiscussion || !me?.isAlive}
-                      className="bg-emerald-400 border-2 border-black px-8 py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all disabled:opacity-50"
+                      className="bg-emerald-400 text-black border-2 border-black px-4 py-2 text-xs font-black uppercase shadow-[2px_2px_0px_0px_rgba(255,255,255,0.3)] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all disabled:opacity-50"
                     >
-                      {me?.hasSkippedDiscussion ? 'Waiting for others...' : 'Skip Discussion'}
+                      {me?.hasSkippedDiscussion ? 'Waiting...' : 'Skip'}
                     </button>
-                    <p className="text-white text-xs font-bold uppercase">
-                      {gameState.players.filter(p => p.isAlive && p.hasSkippedDiscussion).length} / {Math.ceil(gameState.players.filter(p => p.isAlive).length / 2) + 1} needed to skip
-                    </p>
                   </div>
                 </motion.div>
               )}
@@ -517,26 +554,30 @@ export default function App() {
             </AnimatePresence>
 
             {/* Input Area */}
-            {gameState.phase === 'PLAYING' && (
+            {(gameState.phase === 'PLAYING' || gameState.phase === 'DISCUSSION') && (
               <div className="p-6 bg-gray-50 border-t-2 border-black">
                 <form onSubmit={handleSendMessage} className="flex gap-4">
                   <input 
                     type="text" 
                     value={messageInput}
                     onChange={(e) => setMessageInput(e.target.value)}
-                    disabled={!isMyTurn || !me?.isAlive}
-                    placeholder={isMyTurn ? "Describe the Pokemon in one sentence..." : "Waiting for your turn..."}
+                    disabled={(gameState.phase === 'PLAYING' && !isMyTurn) || !me?.isAlive}
+                    placeholder={
+                      gameState.phase === 'DISCUSSION' 
+                        ? "Type your thoughts here..." 
+                        : (isMyTurn ? "Describe the Pokemon in one sentence..." : "Waiting for your turn...")
+                    }
                     className="flex-1 border-2 border-black p-4 font-bold focus:outline-none focus:bg-yellow-50 disabled:opacity-50"
                   />
                   <button 
                     type="submit"
-                    disabled={!isMyTurn || !me?.isAlive || !messageInput.trim()}
+                    disabled={((gameState.phase === 'PLAYING' && !isMyTurn) || !me?.isAlive) || !messageInput.trim()}
                     className="bg-black text-white border-2 border-black px-6 py-4 font-black uppercase flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50 transition-colors"
                   >
                     <Send size={20} /> Send
                   </button>
                 </form>
-                {isMyTurn && (
+                {gameState.phase === 'PLAYING' && isMyTurn && (
                   <motion.p 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}

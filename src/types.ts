@@ -30,6 +30,7 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   round: number;
+  isDiscussion?: boolean;
 }
 
 export interface ServerToClientEvents {
