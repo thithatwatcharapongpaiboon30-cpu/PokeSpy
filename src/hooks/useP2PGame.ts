@@ -9,6 +9,7 @@ export function useP2PGame() {
   const [error, setError] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [myId, setMyId] = useState<string>('');
+  const [isDisconnected, setIsDisconnected] = useState(false);
 
   const gameStateRef = useRef<GameState | null>(null);
   const connectionsRef = useRef<DataConnection[]>([]);
@@ -30,6 +31,14 @@ export function useP2PGame() {
       console.log('My peer ID is: ' + id);
       setMyId(id);
       setPeer(newPeer);
+      setIsDisconnected(false);
+      setError(null);
+    });
+
+    newPeer.on('disconnected', () => {
+      console.log('Peer disconnected from signaling server. Attempting to reconnect...');
+      setIsDisconnected(true);
+      newPeer.reconnect();
     });
 
     newPeer.on('error', (err) => {
@@ -38,6 +47,9 @@ export function useP2PGame() {
         setError('Game server unreachable. This usually happens if the signaling server is down. Please try again in a moment.');
       } else if (err.type === 'network') {
         setError('Network error. Check your internet connection.');
+      } else if (err.type === 'disconnected') {
+        setError('Lost connection to signaling server. Attempting to reconnect...');
+        newPeer.reconnect();
       } else {
         setError('Connection error: ' + err.type);
       }
@@ -348,6 +360,12 @@ export function useP2PGame() {
     }
   };
 
+  const reconnect = () => {
+    if (peer && peer.disconnected) {
+      peer.reconnect();
+    }
+  };
+
   // Timer logic for host
   useEffect(() => {
     if (!isHost || !gameState || gameState.phase !== 'PLAYING' || !gameState.turnEndTime) return;
@@ -383,6 +401,8 @@ export function useP2PGame() {
     skipDiscussion,
     vote,
     leaveRoom,
-    setError
+    setError,
+    isDisconnected,
+    reconnect
   };
 }

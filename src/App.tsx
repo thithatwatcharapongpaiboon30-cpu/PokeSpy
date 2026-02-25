@@ -32,7 +32,9 @@ export default function App() {
     skipDiscussion,
     vote,
     leaveRoom,
-    setError
+    setError,
+    isDisconnected,
+    reconnect
   } = useP2PGame();
 
   const [playerName, setPlayerName] = useState('');
@@ -116,9 +118,11 @@ export default function App() {
             <div>
               <h1 className="text-4xl font-black uppercase tracking-tighter">PokeSpy</h1>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${myId ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                <div className={`w-2 h-2 rounded-full ${
+                  isDisconnected ? 'bg-yellow-500 animate-pulse' : (myId ? 'bg-emerald-500' : 'bg-red-500 animate-pulse')
+                }`} />
                 <span className="text-[10px] font-bold uppercase opacity-50">
-                  {myId ? 'P2P Ready' : 'Initializing...'}
+                  {isDisconnected ? 'Reconnecting...' : (myId ? 'P2P Ready' : 'Initializing...')}
                 </span>
               </div>
             </div>
@@ -183,12 +187,21 @@ export default function App() {
                 className="border-2 p-3 font-bold text-sm text-center bg-red-100 border-red-500 text-red-600"
               >
                 <p>{error}</p>
-                <button 
-                  onClick={() => window.location.reload()}
-                  className="mt-2 block w-full text-[10px] underline uppercase font-black hover:text-red-800"
-                >
-                  Click here to Refresh & Retry
-                </button>
+                {isDisconnected ? (
+                  <button 
+                    onClick={reconnect}
+                    className="mt-2 block w-full text-[10px] underline uppercase font-black hover:text-red-800"
+                  >
+                    Click here to Reconnect
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => window.location.reload()}
+                    className="mt-2 block w-full text-[10px] underline uppercase font-black hover:text-red-800"
+                  >
+                    Click here to Refresh & Retry
+                  </button>
+                )}
               </motion.div>
             )}
           </div>
