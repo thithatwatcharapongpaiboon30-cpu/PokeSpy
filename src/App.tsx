@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -14,92 +13,34 @@ import {
   Plus, 
   LogIn,
   RefreshCw,
-  Info
+  Info,
+  Copy,
+  Check
 } from 'lucide-react';
-import { GameState, Player, ChatMessage, GamePhase } from './types';
-
-const SOCKET_URL = window.location.origin;
+import { useP2PGame } from './hooks/useP2PGame';
 
 export default function App() {
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const {
+    gameState,
+    error,
+    isHost,
+    myId,
+    createRoom: p2pCreateRoom,
+    joinRoom: p2pJoinRoom,
+    startGame,
+    sendMessage: p2pSendMessage,
+    skipDiscussion,
+    vote,
+    leaveRoom,
+    setError
+  } = useP2PGame();
+
   const [playerName, setPlayerName] = useState('');
   const [roomInput, setRoomInput] = useState('');
   const [messageInput, setMessageInput] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [pokemonName, setPokemonName] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    console.log('Initializing socket connection...');
-    
-    // Check if we are in a production-like environment (e.g. Vercel) where the backend might be missing
-    const checkHealth = async () => {
-      try {
-        const res = await fetch('/api/health');
-        if (!res.ok) throw new Error('Backend unreachable');
-        const data = await res.json();
-        console.log('Server health check:', data);
-        setBackendStatus('online');
-      } catch (err) {
-        console.error('Server health check failed:', err);
-        setBackendStatus('offline');
-        setError('Backend server is unreachable. If you are on Vercel, please note that this app requires a persistent Node.js server for WebSockets.');
-      }
-    };
-
-    checkHealth();
-
-    const newSocket = io({
-      transports: ['polling', 'websocket'],
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
-    
-    setSocket(newSocket);
-
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-      setIsConnected(true);
-      setBackendStatus('online');
-      setError(null);
-    });
-
-    newSocket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-      setIsConnected(false);
-      if (reason === 'io server disconnect') {
-        // the disconnection was initiated by the server, you need to reconnect manually
-        newSocket.connect();
-      }
-    });
-
-    newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err);
-      // Don't overwrite the "Vercel" error if it's already set
-      if (backendStatus !== 'offline') {
-        setError('Connecting to game server...');
-      }
-    });
-
-    newSocket.on('gameUpdate', (state: GameState) => {
-      console.log('Game update received:', state);
-      setGameState(state);
-      setError(null);
-    });
-
-    newSocket.on('error', (msg: string) => {
-      console.error('Game error:', msg);
-      setError(msg);
-    });
-
-    return () => {
-      console.log('Closing socket connection...');
-      newSocket.close();
-    };
-  }, []);
 
   useEffect(() => {
     if (gameState?.pokemonId && !pokemonName) {
@@ -117,45 +58,34 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [gameState?.messages]);
 
-  const createRoom = () => {
+  const handleCreateRoom = () => {
     if (!playerName.trim()) return setError('Enter your name');
-    if (!socket?.connected) return setError('Not connected to server. Please wait...');
-    console.log('Emitting createRoom for:', playerName);
-    socket.emit('createRoom', playerName);
+    p2pCreateRoom(playerName);
   };
 
-  const joinRoom = () => {
+  const handleJoinRoom = () => {
     if (!playerName.trim()) return setError('Enter your name');
     if (!roomInput.trim()) return setError('Enter room code');
-    socket?.emit('joinRoom', roomInput.toUpperCase(), playerName);
+    p2pJoinRoom(roomInput.trim(), playerName);
   };
 
-  const startGame = () => {
-    socket?.emit('startGame');
-  };
-
-  const sendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim()) return;
-    socket?.emit('sendMessage', messageInput);
+    p2pSendMessage(messageInput);
     setMessageInput('');
   };
 
-  const skipDiscussion = () => {
-    socket?.emit('skipDiscussion');
+  const copyRoomCode = () => {
+    if (gameState?.roomCode) {
+      navigator.clipboard.writeText(gameState.roomCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  const vote = (targetId: string | 'skip') => {
-    socket?.emit('vote', targetId);
-  };
-
-  const leaveRoom = () => {
-    socket?.emit('leaveRoom');
-  };
-
-  const me = gameState?.players.find(p => p.id === socket?.id);
-  const isHost = gameState?.players[0]?.id === socket?.id;
-  const isMyTurn = gameState?.phase === 'PLAYING' && gameState.players[gameState.currentPlayerIndex].id === socket?.id;
+  const me = gameState?.players.find(p => p.id === myId);
+  const isMyTurn = gameState?.phase === 'PLAYING' && gameState.players[gameState.currentPlayerIndex].id === myId;
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
@@ -186,17 +116,21 @@ export default function App() {
             <div>
               <h1 className="text-4xl font-black uppercase tracking-tighter">PokeSpy</h1>
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  backendStatus === 'online' ? (isConnected ? 'bg-emerald-500' : 'bg-yellow-500 animate-pulse') : 'bg-red-500 animate-pulse'
-                }`} />
+                <div className={`w-2 h-2 rounded-full ${myId ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
                 <span className="text-[10px] font-bold uppercase opacity-50">
-                  {backendStatus === 'offline' ? 'Server Offline' : (isConnected ? 'Connected' : 'Connecting...')}
+                  {myId ? 'P2P Ready' : 'Initializing...'}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="space-y-6">
+            <div className="bg-blue-50 border-2 border-blue-200 p-3 flex items-start gap-3">
+              <Info className="text-blue-500 shrink-0 mt-0.5" size={16} />
+              <p className="text-[10px] font-bold uppercase text-blue-700 leading-tight">
+                Vercel Compatible: This version uses Peer-to-Peer technology. No backend server required!
+              </p>
+            </div>
             <div>
               <label className="block text-xs font-bold uppercase mb-1">Your Name</label>
               <input 
@@ -210,10 +144,10 @@ export default function App() {
 
             <div className="grid grid-cols-2 gap-4">
               <button 
-                onClick={createRoom}
-                disabled={backendStatus === 'offline'}
+                onClick={handleCreateRoom}
+                disabled={!myId}
                 className={`border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
-                  backendStatus === 'offline' 
+                  !myId 
                     ? 'bg-gray-300 cursor-not-allowed opacity-50' 
                     : 'bg-emerald-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                 }`}
@@ -225,14 +159,14 @@ export default function App() {
                   type="text" 
                   value={roomInput}
                   onChange={(e) => setRoomInput(e.target.value)}
-                  placeholder="CODE"
+                  placeholder="HOST ID"
                   className="w-full border-2 border-black p-3 font-mono text-center uppercase focus:outline-none focus:bg-yellow-50"
                 />
                 <button 
-                  onClick={joinRoom}
-                  disabled={backendStatus === 'offline'}
+                  onClick={handleJoinRoom}
+                  disabled={!myId}
                   className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
-                    backendStatus === 'offline'
+                    !myId
                       ? 'bg-gray-300 cursor-not-allowed opacity-50'
                       : 'bg-blue-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                   }`}
@@ -246,19 +180,15 @@ export default function App() {
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className={`border-2 p-3 font-bold text-sm text-center ${
-                  backendStatus === 'offline' ? 'bg-red-100 border-red-500 text-red-600' : 'bg-yellow-100 border-yellow-500 text-yellow-700'
-                }`}
+                className="border-2 p-3 font-bold text-sm text-center bg-red-100 border-red-500 text-red-600"
               >
-                {error}
-                {backendStatus === 'offline' && (
-                  <button 
-                    onClick={() => window.location.reload()}
-                    className="mt-2 block w-full text-xs underline uppercase"
-                  >
-                    Retry Connection
-                  </button>
-                )}
+                <p>{error}</p>
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="mt-2 block w-full text-[10px] underline uppercase font-black hover:text-red-800"
+                >
+                  Click here to Refresh & Retry
+                </button>
               </motion.div>
             )}
           </div>
@@ -274,10 +204,22 @@ export default function App() {
         {/* Left Column: Game Info & Players */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-black uppercase tracking-tighter">Room: {gameState.roomCode}</h2>
-              <div className="bg-black text-white px-2 py-1 text-xs font-bold uppercase">
-                {gameState.phase}
+            <div className="flex flex-col gap-2 mb-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-black uppercase tracking-tighter">Room Code</h2>
+                <div className="bg-black text-white px-2 py-1 text-xs font-bold uppercase">
+                  {gameState.phase}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 bg-gray-100 p-2 border-2 border-black">
+                <code className="text-xs font-mono truncate flex-1">{gameState.roomCode}</code>
+                <button 
+                  onClick={copyRoomCode}
+                  className="p-1 hover:bg-gray-200 transition-colors"
+                  title="Copy Code"
+                >
+                  {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                </button>
               </div>
             </div>
             
@@ -290,13 +232,13 @@ export default function App() {
                   key={p.id}
                   className={`flex items-center justify-between p-3 border-2 border-black ${
                     !p.isAlive ? 'bg-gray-200 opacity-50 grayscale' : 
-                    p.id === socket?.id ? 'bg-yellow-100' : 'bg-white'
+                    p.id === myId ? 'bg-yellow-100' : 'bg-white'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     {p.isAlive ? <User size={18} /> : <Skull size={18} />}
                     <span className="font-bold uppercase tracking-tight">
-                      {p.name} {p.id === socket?.id && '(YOU)'}
+                      {p.name} {p.id === myId && '(YOU)'}
                     </span>
                   </div>
                   <div className="flex gap-2">
@@ -420,14 +362,14 @@ export default function App() {
                   key={i}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className={`flex flex-col ${msg.playerId === socket?.id ? 'items-end' : 'items-start'}`}
+                  className={`flex flex-col ${msg.playerId === myId ? 'items-end' : 'items-start'}`}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-black uppercase bg-black text-white px-1">R{msg.round}</span>
                     <span className="text-xs font-bold uppercase">{msg.playerName}</span>
                   </div>
                   <div className={`max-w-[80%] p-3 border-2 border-black font-bold ${
-                    msg.playerId === socket?.id ? 'bg-yellow-100 shadow-[-4px_4px_0px_0px_rgba(0,0,0,1)]' : 'bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
+                    msg.playerId === myId ? 'bg-yellow-100 shadow-[-4px_4px_0px_0px_rgba(0,0,0,1)]' : 'bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                   }`}>
                     {msg.text}
                   </div>
@@ -488,7 +430,7 @@ export default function App() {
                       >
                         <div className="flex items-center gap-3">
                           <User size={20} />
-                          {p.name} {p.id === socket?.id && '(YOU)'}
+                          {p.name} {p.id === myId && '(YOU)'}
                         </div>
                       </button>
                     ))}
@@ -562,7 +504,7 @@ export default function App() {
             {/* Input Area */}
             {gameState.phase === 'PLAYING' && (
               <div className="p-6 bg-gray-50 border-t-2 border-black">
-                <form onSubmit={sendMessage} className="flex gap-4">
+                <form onSubmit={handleSendMessage} className="flex gap-4">
                   <input 
                     type="text" 
                     value={messageInput}
