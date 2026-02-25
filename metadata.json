@@ -1,0 +1,5 @@
+{
+  "name": "PokeSpy: The Imposter Game",
+  "description": "A 3-5 player social deduction game where one player is the imposter and others describe a mystery Pokemon.",
+  "requestFramePermissions": []
+}
