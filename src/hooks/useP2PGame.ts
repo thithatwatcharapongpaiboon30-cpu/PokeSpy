@@ -10,6 +10,7 @@ export function useP2PGame() {
   const [isHost, setIsHost] = useState(false);
   const [myId, setMyId] = useState<string>('');
   const [isDisconnected, setIsDisconnected] = useState(false);
+  const [peerVersion, setPeerVersion] = useState(0);
 
   const gameStateRef = useRef<GameState | null>(null);
   const connectionsRef = useRef<DataConnection[]>([]);
@@ -38,27 +39,52 @@ export function useP2PGame() {
     newPeer.on('disconnected', () => {
       console.log('Peer disconnected from signaling server. Attempting to reconnect...');
       setIsDisconnected(true);
-      newPeer.reconnect();
+      // Small delay before reconnecting to avoid rapid-fire attempts
+      setTimeout(() => {
+        if (newPeer && !newPeer.destroyed && newPeer.disconnected) {
+          newPeer.reconnect();
+        }
+      }, 3000);
     });
 
     newPeer.on('error', (err) => {
       console.error('Peer error:', err);
-      if (err.type === 'server-error') {
-        setError('Game server unreachable. This usually happens if the signaling server is down. Please try again in a moment.');
-      } else if (err.type === 'network') {
-        setError('Network error. Check your internet connection.');
-      } else if (err.type === 'disconnected') {
-        setError('Lost connection to signaling server. Attempting to reconnect...');
-        newPeer.reconnect();
-      } else {
-        setError('Connection error: ' + err.type);
+      const errorType = err.type;
+      
+      switch (errorType) {
+        case 'server-error':
+          setError('Signaling server error. We are trying to reconnect...');
+          break;
+        case 'network':
+          setError('Network error. Please check your internet connection.');
+          break;
+        case 'disconnected':
+          setError('Lost connection to signaling server. Reconnecting...');
+          setIsDisconnected(true);
+          newPeer.reconnect();
+          break;
+        case 'socket-error':
+        case 'socket-closed':
+          setError('Connection to server lost. Reconnecting...');
+          setIsDisconnected(true);
+          newPeer.reconnect();
+          break;
+        case 'peer-unavailable':
+          setError('The host you are trying to reach is unavailable. Check the ID.');
+          break;
+        default:
+          setError(`Connection issue (${errorType}). We are attempting to fix it...`);
+      }
+
+      if (newPeer.destroyed) {
+        setError('Fatal connection error. Please click Reset to try again.');
       }
     });
 
     return () => {
       newPeer.destroy();
     };
-  }, []);
+  }, [peerVersion]);
 
   // Broadcast state to all connected peers
   const broadcastState = useCallback((state: GameState) => {
@@ -361,8 +387,14 @@ export function useP2PGame() {
   };
 
   const reconnect = () => {
-    if (peer && peer.disconnected) {
-      peer.reconnect();
+    if (peer) {
+      if (peer.destroyed) {
+        setPeerVersion(v => v + 1);
+      } else if (peer.disconnected) {
+        peer.reconnect();
+      }
+    } else {
+      setPeerVersion(v => v + 1);
     }
   };
 

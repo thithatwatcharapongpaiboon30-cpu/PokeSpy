@@ -187,12 +187,12 @@ export default function App() {
                 className="border-2 p-3 font-bold text-sm text-center bg-red-100 border-red-500 text-red-600"
               >
                 <p>{error}</p>
-                {isDisconnected ? (
+                {isDisconnected || error?.includes('Fatal') ? (
                   <button 
                     onClick={reconnect}
                     className="mt-2 block w-full text-[10px] underline uppercase font-black hover:text-red-800"
                   >
-                    Click here to Reconnect
+                    {error?.includes('Fatal') ? 'Reset Connection' : 'Click here to Reconnect'}
                   </button>
                 ) : (
                   <button 
