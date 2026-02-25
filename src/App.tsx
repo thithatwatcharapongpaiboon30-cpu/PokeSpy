@@ -61,13 +61,17 @@ export default function App() {
   }, [gameState?.messages]);
 
   const handleCreateRoom = () => {
-    if (!playerName.trim()) return setError('Enter your name');
+    console.log('Attempting to create room');
+    if (!playerName.trim()) return setError('Please enter your name first');
+    if (!myId) return setError('Still initializing connection. Please wait a few seconds...');
     p2pCreateRoom(playerName);
   };
 
   const handleJoinRoom = () => {
-    if (!playerName.trim()) return setError('Enter your name');
-    if (!roomInput.trim()) return setError('Enter room code');
+    console.log('Attempting to join room:', roomInput);
+    if (!playerName.trim()) return setError('Please enter your name first');
+    if (!roomInput.trim()) return setError('Please enter the Host ID');
+    if (!myId) return setError('Still initializing connection. Please wait a few seconds...');
     p2pJoinRoom(roomInput.trim(), playerName);
   };
 
@@ -149,10 +153,9 @@ export default function App() {
             <div className="grid grid-cols-2 gap-4">
               <button 
                 onClick={handleCreateRoom}
-                disabled={!myId}
                 className={`border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
                   !myId 
-                    ? 'bg-gray-300 cursor-not-allowed opacity-50' 
+                    ? 'bg-gray-100 text-gray-400 cursor-wait' 
                     : 'bg-emerald-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                 }`}
               >
@@ -163,15 +166,14 @@ export default function App() {
                   type="text" 
                   value={roomInput}
                   onChange={(e) => setRoomInput(e.target.value)}
-                  placeholder="HOST ID"
-                  className="w-full border-2 border-black p-3 font-mono text-center uppercase focus:outline-none focus:bg-yellow-50"
+                  placeholder="PASTE HOST ID"
+                  className="w-full border-2 border-black p-3 font-mono text-center focus:outline-none focus:bg-yellow-50"
                 />
                 <button 
                   onClick={handleJoinRoom}
-                  disabled={!myId}
                   className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
                     !myId
-                      ? 'bg-gray-300 cursor-not-allowed opacity-50'
+                      ? 'bg-gray-100 text-gray-400 cursor-wait'
                       : 'bg-blue-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
                   }`}
                 >

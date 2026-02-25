@@ -278,7 +278,10 @@ export function useP2PGame() {
 
   // Host setup
   const createRoom = (playerName: string) => {
-    if (!peer) return;
+    if (!peer) {
+      setError('Connection not ready. Please try again in a moment.');
+      return;
+    }
     setIsHost(true);
     const initialState: GameState = {
       roomCode: myId,
@@ -327,7 +330,10 @@ export function useP2PGame() {
 
   // Client setup
   const joinRoom = (roomCode: string, playerName: string) => {
-    if (!peer) return;
+    if (!peer) {
+      setError('Connection not ready. Please try again in a moment.');
+      return;
+    }
     const conn = peer.connect(roomCode);
     conn.on('open', () => {
       setConnections([conn]);
