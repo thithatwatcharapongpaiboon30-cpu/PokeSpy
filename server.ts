@@ -98,7 +98,9 @@ io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
   socket.on('createRoom', (playerName: string) => {
+    console.log('createRoom received from:', socket.id, 'playerName:', playerName);
     const roomCode = generateRoomCode();
+    console.log('Generated roomCode:', roomCode);
     const state: GameState = {
       roomCode,
       players: [{
@@ -388,6 +390,11 @@ io.on('connection', (socket) => {
 });
 
 async function startServer() {
+  // API routes
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", rooms: rooms.size });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

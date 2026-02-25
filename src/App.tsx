@@ -22,6 +22,7 @@ const SOCKET_URL = window.location.origin;
 
 export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [roomInput, setRoomInput] = useState('');
@@ -31,19 +32,47 @@ export default function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const newSocket = io(SOCKET_URL);
+    console.log('Initializing socket connection...');
+    
+    // Test health check
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => console.log('Server health check:', data))
+      .catch(err => console.error('Server health check failed:', err));
+
+    const newSocket = io();
+    
     setSocket(newSocket);
 
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+      setIsConnected(true);
+      setError(null);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      setIsConnected(false);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
+      setError('Connection error. Please try refreshing.');
+    });
+
     newSocket.on('gameUpdate', (state: GameState) => {
+      console.log('Game update received:', state);
       setGameState(state);
       setError(null);
     });
 
     newSocket.on('error', (msg: string) => {
+      console.error('Game error:', msg);
       setError(msg);
     });
 
     return () => {
+      console.log('Closing socket connection...');
       newSocket.close();
     };
   }, []);
@@ -66,7 +95,9 @@ export default function App() {
 
   const createRoom = () => {
     if (!playerName.trim()) return setError('Enter your name');
-    socket?.emit('createRoom', playerName);
+    if (!socket?.connected) return setError('Not connected to server. Please wait...');
+    console.log('Emitting createRoom for:', playerName);
+    socket.emit('createRoom', playerName);
   };
 
   const joinRoom = () => {
@@ -128,7 +159,15 @@ export default function App() {
             <div className="bg-red-500 p-2 border-2 border-black">
               <RefreshCw className="text-white w-8 h-8" />
             </div>
-            <h1 className="text-4xl font-black uppercase tracking-tighter">PokeSpy</h1>
+            <div>
+              <h1 className="text-4xl font-black uppercase tracking-tighter">PokeSpy</h1>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                <span className="text-[10px] font-bold uppercase opacity-50">
+                  {isConnected ? 'Connected' : 'Connecting...'}
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-6">
