@@ -14,6 +14,7 @@ export function useP2PGame() {
 
   const gameStateRef = useRef<GameState | null>(null);
   const connectionsRef = useRef<DataConnection[]>([]);
+  const isHostRef = useRef(false);
 
   // Update refs when state changes
   useEffect(() => {
@@ -23,6 +24,10 @@ export function useP2PGame() {
   useEffect(() => {
     connectionsRef.current = connections;
   }, [connections]);
+
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
 
   // Initialize Peer
   useEffect(() => {
@@ -98,16 +103,26 @@ export function useP2PGame() {
 
   // Handle incoming data
   const handleData = useCallback((data: any, conn: DataConnection) => {
-    if (isHost) {
+    console.log('Received data:', data.type, 'from:', conn.peer);
+    
+    if (isHostRef.current) {
       // Host handles actions from clients
-      const state = { ...gameStateRef.current! };
+      if (!gameStateRef.current) return;
+      const state = { ...gameStateRef.current };
       
       switch (data.type) {
         case 'JOIN':
+          console.log('Player joining:', data.playerName);
           if (state.players.length >= 5) {
             conn.send({ type: 'ERROR', message: 'Room full' });
             return;
           }
+          // Check if player already exists
+          if (state.players.some(p => p.id === conn.peer)) {
+            conn.send({ type: 'STATE_UPDATE', state });
+            return;
+          }
+
           state.players.push({
             id: conn.peer,
             name: data.playerName,
@@ -116,7 +131,12 @@ export function useP2PGame() {
             hasVoted: false,
             hasSkippedDiscussion: false,
           });
+          
           broadcastState(state);
+          // Explicitly send to the new connection to ensure they get it immediately
+          setTimeout(() => {
+            if (conn.open) conn.send({ type: 'STATE_UPDATE', state });
+          }, 100);
           break;
 
         case 'START_GAME':
@@ -307,22 +327,30 @@ export function useP2PGame() {
     setGameState(initialState);
 
     peer.on('connection', (conn) => {
+      console.log('Incoming connection from:', conn.peer);
       conn.on('open', () => {
-        setConnections(prev => [...prev, conn]);
+        console.log('Connection opened with:', conn.peer);
+        setConnections(prev => {
+          if (prev.find(c => c.peer === conn.peer)) return prev;
+          return [...prev, conn];
+        });
         conn.on('data', (data) => handleData(data, conn));
       });
       conn.on('close', () => {
-        setConnections(prev => prev.filter(c => c !== conn));
+        console.log('Connection closed with:', conn.peer);
+        setConnections(prev => prev.filter(c => c.peer !== conn.peer));
         // Handle player disconnect
-        const state = { ...gameStateRef.current! };
-        const idx = state.players.findIndex(p => p.id === conn.peer);
-        if (idx !== -1) {
-          if (state.phase === 'LOBBY') {
-            state.players.splice(idx, 1);
-          } else {
-            state.players[idx].isAlive = false;
+        if (gameStateRef.current) {
+          const state = { ...gameStateRef.current };
+          const idx = state.players.findIndex(p => p.id === conn.peer);
+          if (idx !== -1) {
+            if (state.phase === 'LOBBY') {
+              state.players.splice(idx, 1);
+            } else {
+              state.players[idx].isAlive = false;
+            }
+            broadcastState(state);
           }
-          broadcastState(state);
         }
       });
     });
@@ -334,17 +362,23 @@ export function useP2PGame() {
       setError('Connection not ready. Please try again in a moment.');
       return;
     }
+    console.log('Connecting to room:', roomCode);
     const conn = peer.connect(roomCode);
+    
     conn.on('open', () => {
+      console.log('Connected to host:', roomCode);
       setConnections([conn]);
       conn.send({ type: 'JOIN', playerName });
       conn.on('data', (data) => handleData(data, conn));
     });
+    
     conn.on('error', (err) => {
       console.error('Connection error:', err);
-      setError('Failed to connect to host');
+      setError('Failed to connect to host. Make sure the ID is correct.');
     });
+    
     conn.on('close', () => {
+      console.log('Connection to host closed');
       setError('Connection to host lost');
       setGameState(null);
     });
