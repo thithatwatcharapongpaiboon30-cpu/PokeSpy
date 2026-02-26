@@ -460,7 +460,7 @@ export default function App() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 bg-white flex flex-col p-8 z-20"
+                  className="absolute inset-0 bg-white flex flex-col p-8 z-20 overflow-y-auto"
                 >
                   <div className="flex items-center gap-3 mb-8">
                     <Vote size={32} />
@@ -507,45 +507,47 @@ export default function App() {
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="absolute inset-0 bg-black text-white flex flex-col items-center justify-center p-8 z-30"
+                  className="absolute inset-0 bg-black text-white z-30 overflow-y-auto p-8"
                 >
-                  <Trophy size={80} className="text-yellow-400 mb-6" />
-                  <h2 className="text-6xl font-black uppercase mb-2 tracking-tighter">
-                    {gameState.winner === 'CREW' ? 'Crew Wins!' : 'Imposter Wins!'}
-                  </h2>
-                  <p className="text-xl font-bold uppercase mb-8 opacity-70">
-                    {gameState.winner === 'CREW' ? 'The imposter was caught!' : 'The imposter successfully blended in!'}
-                  </p>
+                  <div className="min-h-full flex flex-col items-center justify-center w-full py-4">
+                    <Trophy size={80} className="text-yellow-400 mb-6 shrink-0" />
+                    <h2 className="text-4xl md:text-6xl font-black uppercase mb-2 tracking-tighter text-center">
+                      {gameState.winner === 'CREW' ? 'Crew Wins!' : 'Imposter Wins!'}
+                    </h2>
+                    <p className="text-lg md:text-xl font-bold uppercase mb-8 opacity-70 text-center">
+                      {gameState.winner === 'CREW' ? 'The imposter was caught!' : 'The imposter successfully blended in!'}
+                    </p>
 
-                  <div className="bg-white/10 border-2 border-white/20 p-8 rounded-lg mb-8 w-full max-w-md">
-                    <div className="flex flex-col items-center gap-4">
-                      <p className="text-xs font-black uppercase opacity-50">The Imposter was</p>
-                      <div className="flex items-center gap-3">
-                        <Skull size={24} className="text-red-500" />
-                        <span className="text-3xl font-black uppercase">
-                          {gameState.players.find(p => p.isImposter)?.name}
-                        </span>
-                      </div>
-                      <div className="w-full h-px bg-white/20 my-2" />
-                      <p className="text-xs font-black uppercase opacity-50">The Pokemon was</p>
-                      <div className="flex flex-col items-center gap-2">
-                        <img 
-                          src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${gameState.pokemonId}.png`}
-                          alt="Pokemon"
-                          className="w-32 h-32 object-contain"
-                          referrerPolicy="no-referrer"
-                        />
-                        <span className="text-2xl font-black uppercase tracking-widest text-yellow-400">{pokemonName}</span>
+                    <div className="bg-white/10 border-2 border-white/20 p-6 md:p-8 rounded-lg mb-8 w-full max-w-md shrink-0">
+                      <div className="flex flex-col items-center gap-4">
+                        <p className="text-xs font-black uppercase opacity-50">The Imposter was</p>
+                        <div className="flex items-center gap-3">
+                          <Skull size={24} className="text-red-500" />
+                          <span className="text-2xl md:text-3xl font-black uppercase">
+                            {gameState.players.find(p => p.isImposter)?.name}
+                          </span>
+                        </div>
+                        <div className="w-full h-px bg-white/20 my-2" />
+                        <p className="text-xs font-black uppercase opacity-50">The Pokemon was</p>
+                        <div className="flex flex-col items-center gap-2">
+                          <img 
+                            src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${gameState.pokemonId}.png`}
+                            alt="Pokemon"
+                            className="w-24 h-24 md:w-32 md:h-32 object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                          <span className="text-xl md:text-2xl font-black uppercase tracking-widest text-yellow-400">{pokemonName}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <button 
-                    onClick={isHost ? playAgain : undefined}
-                    className={`bg-white text-black border-2 border-white px-8 py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all ${!isHost ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {isHost ? 'Play Again' : 'Waiting for Host...'}
-                  </button>
+                    <button 
+                      onClick={isHost ? playAgain : undefined}
+                      className={`bg-white text-black border-2 border-white px-8 py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shrink-0 ${!isHost ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {isHost ? 'Play Again' : 'Waiting for Host...'}
+                    </button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
