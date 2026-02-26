@@ -190,23 +190,6 @@ export function useP2PGame() {
             });
           break;
 
-        case 'TOGGLE_PRIVATE':
-          if (conn.peer === state.players[0].id) {
-            state.isPrivate = !state.isPrivate;
-            broadcastState(state);
-            
-            if (state.isPrivate) {
-              fetch(`/api/rooms/${state.roomCode}`, { method: 'DELETE' }).catch(() => {});
-            } else {
-              fetch('/api/rooms', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: state.roomCode, hostName: state.players[0].name, playerCount: state.players.length })
-              }).catch(() => {});
-            }
-          }
-          break;
-
         case 'PLAY_AGAIN':
           if (conn.peer === state.players[0].id) {
             state.phase = 'LOBBY';
@@ -460,7 +443,6 @@ export function useP2PGame() {
       pokemonName: null,
       pokemonType: null,
       pokemonImageUrl: null,
-      isPrivate: false,
       currentRound: 1,
       currentPlayerIndex: 0,
       messages: [],
@@ -471,13 +453,6 @@ export function useP2PGame() {
       lastVotedOut: null,
     };
     setGameState(initialState);
-    
-    // Register room as public
-    fetch('/api/rooms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: myId, hostName: playerName, playerCount: 1 })
-    }).catch(err => console.error('Failed to register room:', err));
   };
 
   // Client setup
@@ -568,9 +543,6 @@ export function useP2PGame() {
 
   const leaveRoom = () => {
     if (peer) {
-      if (isHost) {
-        fetch(`/api/rooms/${myId}`, { method: 'DELETE' }).catch(() => {});
-      }
       connections.forEach(c => c.close());
       setGameState(null);
       setIsHost(false);
@@ -633,42 +605,6 @@ export function useP2PGame() {
     return () => clearInterval(timer);
   }, [isHost, gameState, broadcastState]);
 
-  // Heartbeat for host
-  useEffect(() => {
-    if (!isHost || !myId || !gameState || gameState.isPrivate) return;
-    
-    const sendHeartbeat = () => {
-      fetch('/api/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: myId, 
-          hostName: gameState.players[0].name, 
-          playerCount: gameState.players.length 
-        })
-      }).catch(() => {});
-    };
-
-    sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 30000); // Every 30 seconds
-
-    const handleUnload = () => {
-      navigator.sendBeacon(`/api/rooms/${myId}/delete`);
-    };
-    window.addEventListener('beforeunload', handleUnload);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('beforeunload', handleUnload);
-    };
-  }, [isHost, myId, gameState]);
-
-  const togglePrivate = () => {
-    if (isHost) {
-      handleData({ type: 'TOGGLE_PRIVATE' }, { peer: myId } as any);
-    }
-  };
-
   return {
     gameState,
     error,
@@ -682,7 +618,6 @@ export function useP2PGame() {
     vote,
     playAgain,
     leaveRoom,
-    togglePrivate,
     setError,
     isDisconnected,
     reconnect

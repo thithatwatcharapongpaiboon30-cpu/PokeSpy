@@ -36,7 +36,6 @@ export default function App() {
     vote,
     playAgain,
     leaveRoom,
-    togglePrivate,
     setError,
     isDisconnected,
     reconnect
@@ -69,28 +68,6 @@ export default function App() {
     p2pJoinRoom(roomInput.trim(), playerName);
   };
 
-  const handleJoinRandomRoom = async () => {
-    if (!playerName.trim()) return setError('Please enter your name first');
-    if (!myId) return setError('Still initializing connection. Please wait a few seconds...');
-    
-    try {
-      const res = await fetch('/api/rooms/random');
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'No public rooms found');
-      }
-      const room = await res.json();
-      
-      if (room.id === myId) {
-        throw new Error('No other public rooms available right now.');
-      }
-      
-      p2pJoinRoom(room.id, playerName);
-    } catch (err: any) {
-      setError(err.message || 'Failed to find a random room');
-    }
-  };
-
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim()) return;
@@ -118,6 +95,12 @@ export default function App() {
         setTimeLeft(remaining);
       }, 100);
       return () => clearInterval(interval);
+    } else if (gameState?.phase === 'DISCUSSION' && gameState.discussionEndTime) {
+      const interval = setInterval(() => {
+        const remaining = Math.max(0, Math.floor((gameState.discussionEndTime! - Date.now()) / 1000));
+        setTimeLeft(remaining);
+      }, 100);
+      return () => clearInterval(interval);
     } else if (gameState?.phase === 'VOTING' && gameState.votingEndTime) {
       const interval = setInterval(() => {
         const remaining = Math.max(0, Math.floor((gameState.votingEndTime! - Date.now()) / 1000));
@@ -127,7 +110,7 @@ export default function App() {
     } else {
       setTimeLeft(null);
     }
-  }, [gameState?.phase, gameState?.turnEndTime, gameState?.votingEndTime]);
+  }, [gameState?.phase, gameState?.turnEndTime, gameState?.votingEndTime, gameState?.discussionEndTime]);
 
   if (!gameState) {
     return (
@@ -203,17 +186,6 @@ export default function App() {
                 </button>
               </div>
             </div>
-
-            <button 
-              onClick={handleJoinRandomRoom}
-              className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
-                !myId 
-                  ? 'bg-gray-100 text-gray-400 cursor-wait' 
-                  : 'bg-yellow-400 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]'
-              }`}
-            >
-              <Shuffle size={20} /> Join Random Lobby
-            </button>
 
             {error && (
               <motion.div 
@@ -304,15 +276,6 @@ export default function App() {
             <div className="space-y-3 mt-6">
               {gameState.phase === 'LOBBY' && isHost && (
                 <>
-                  <button 
-                    onClick={togglePrivate}
-                    className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
-                      gameState.isPrivate ? 'bg-gray-200' : 'bg-blue-100 hover:bg-blue-200'
-                    }`}
-                  >
-                    {gameState.isPrivate ? <Lock size={20} /> : <Unlock size={20} />}
-                    {gameState.isPrivate ? 'Lobby is Private' : 'Lobby is Public'}
-                  </button>
                   <button 
                     onClick={startGame}
                     disabled={gameState.players.length < 3}
