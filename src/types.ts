@@ -15,10 +15,13 @@ export interface GameState {
   phase: GamePhase;
   pokemonId: number | null;
   pokemonName: string | null;
+  pokemonType: string | null;
+  isPrivate: boolean;
   currentRound: number;
   currentPlayerIndex: number;
   messages: ChatMessage[];
   discussionEndTime: number | null;
+  votingEndTime: number | null;
   turnEndTime: number | null;
   winner: 'CREW' | 'IMPOSTER' | null;
   lastVotedOut: string | null;

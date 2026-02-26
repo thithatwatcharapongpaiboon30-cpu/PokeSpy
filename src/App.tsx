@@ -16,7 +16,9 @@ import {
   Info,
   Copy,
   Check,
-  Shuffle
+  Shuffle,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { useP2PGame } from './hooks/useP2PGame';
 
@@ -32,7 +34,9 @@ export default function App() {
     sendMessage: p2pSendMessage,
     skipDiscussion,
     vote,
+    playAgain,
     leaveRoom,
+    togglePrivate,
     setError,
     isDisconnected,
     reconnect
@@ -87,6 +91,11 @@ export default function App() {
         throw new Error(data.message || 'No public rooms found');
       }
       const room = await res.json();
+      
+      if (room.id === myId) {
+        throw new Error('No other public rooms available right now.');
+      }
+      
       p2pJoinRoom(room.id, playerName);
     } catch (err: any) {
       setError(err.message || 'Failed to find a random room');
@@ -120,10 +129,16 @@ export default function App() {
         setTimeLeft(remaining);
       }, 100);
       return () => clearInterval(interval);
+    } else if (gameState?.phase === 'VOTING' && gameState.votingEndTime) {
+      const interval = setInterval(() => {
+        const remaining = Math.max(0, Math.floor((gameState.votingEndTime! - Date.now()) / 1000));
+        setTimeLeft(remaining);
+      }, 100);
+      return () => clearInterval(interval);
     } else {
       setTimeLeft(null);
     }
-  }, [gameState?.phase, gameState?.turnEndTime]);
+  }, [gameState?.phase, gameState?.turnEndTime, gameState?.votingEndTime]);
 
   if (!gameState) {
     return (
@@ -299,13 +314,24 @@ export default function App() {
 
             <div className="space-y-3 mt-6">
               {gameState.phase === 'LOBBY' && isHost && (
-                <button 
-                  onClick={startGame}
-                  disabled={gameState.players.length < 3}
-                  className="w-full bg-red-500 text-white border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Play size={20} /> Start Game
-                </button>
+                <>
+                  <button 
+                    onClick={togglePrivate}
+                    className={`w-full border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 transition-all ${
+                      gameState.isPrivate ? 'bg-gray-200' : 'bg-blue-100 hover:bg-blue-200'
+                    }`}
+                  >
+                    {gameState.isPrivate ? <Lock size={20} /> : <Unlock size={20} />}
+                    {gameState.isPrivate ? 'Lobby is Private' : 'Lobby is Public'}
+                  </button>
+                  <button 
+                    onClick={startGame}
+                    disabled={gameState.players.length < 3}
+                    className="w-full bg-red-500 text-white border-2 border-black p-4 font-bold uppercase flex items-center justify-center gap-2 hover:translate-x-1 hover:translate-y-1 hover:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Play size={20} /> Start Game
+                  </button>
+                </>
               )}
 
               <button 
@@ -347,8 +373,15 @@ export default function App() {
               ) : (
                 <div className="space-y-4">
                   <p className="text-sm font-bold uppercase opacity-80">You don't know the Pokemon!</p>
-                  <div className="aspect-square bg-black border-2 border-white/20 p-4 flex items-center justify-center">
+                  <div className="aspect-square bg-black border-2 border-white/20 p-4 flex items-center justify-center relative">
                     <span className="text-6xl font-black">?</span>
+                    {gameState.pokemonType && gameState.pokemonType !== 'unknown' && (
+                      <div className="absolute bottom-4 left-0 right-0 text-center">
+                        <span className="bg-white/20 px-3 py-1 text-xs font-bold uppercase rounded-full">
+                          Hint: {gameState.pokemonType} type
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <p className="text-center text-sm font-bold uppercase">Blend in and guess what they are describing.</p>
                 </div>
@@ -385,6 +418,11 @@ export default function App() {
             {gameState.phase === 'DISCUSSION' && gameState.discussionEndTime && (
               <div className="text-sm font-bold uppercase text-red-400">
                 Time Left: {Math.max(0, Math.floor((gameState.discussionEndTime - Date.now()) / 1000))}s
+              </div>
+            )}
+            {gameState.phase === 'VOTING' && gameState.votingEndTime && (
+              <div className="text-sm font-bold uppercase text-red-400">
+                Time Left: {Math.max(0, Math.floor((gameState.votingEndTime - Date.now()) / 1000))}s
               </div>
             )}
           </div>
@@ -544,10 +582,10 @@ export default function App() {
                   </div>
 
                   <button 
-                    onClick={() => window.location.reload()}
-                    className="bg-white text-black border-2 border-white px-8 py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all"
+                    onClick={isHost ? playAgain : undefined}
+                    className={`bg-white text-black border-2 border-white px-8 py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all ${!isHost ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    Play Again
+                    {isHost ? 'Play Again' : 'Waiting for Host...'}
                   </button>
                 </motion.div>
               )}

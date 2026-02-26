@@ -149,13 +149,78 @@ export function useP2PGame() {
           state.players.forEach((p, i) => p.isImposter = i === imposterIndex);
           
           state.pokemonId = Math.floor(Math.random() * 1010) + 1;
-          state.phase = 'PLAYING';
-          state.currentRound = 1;
-          state.currentPlayerIndex = Math.floor(Math.random() * state.players.length);
-          state.messages = [];
-          state.winner = null;
-          state.turnEndTime = Date.now() + 25000;
-          broadcastState(state);
+          
+          fetch(`https://pokeapi.co/api/v2/pokemon/${state.pokemonId}`)
+            .then(res => res.json())
+            .then(data => {
+              if (gameStateRef.current) {
+                const newState = { ...gameStateRef.current };
+                newState.pokemonType = data.types[0].type.name;
+                newState.phase = 'PLAYING';
+                newState.currentRound = 1;
+                newState.currentPlayerIndex = Math.floor(Math.random() * newState.players.length);
+                newState.messages = [];
+                newState.winner = null;
+                newState.turnEndTime = Date.now() + 25000;
+                broadcastState(newState);
+              }
+            })
+            .catch(err => {
+              console.error(err);
+              if (gameStateRef.current) {
+                const newState = { ...gameStateRef.current };
+                newState.pokemonType = 'unknown';
+                newState.phase = 'PLAYING';
+                newState.currentRound = 1;
+                newState.currentPlayerIndex = Math.floor(Math.random() * newState.players.length);
+                newState.messages = [];
+                newState.winner = null;
+                newState.turnEndTime = Date.now() + 25000;
+                broadcastState(newState);
+              }
+            });
+          break;
+
+        case 'TOGGLE_PRIVATE':
+          if (conn.peer === state.players[0].id) {
+            state.isPrivate = !state.isPrivate;
+            broadcastState(state);
+            
+            if (state.isPrivate) {
+              fetch(`/api/rooms/${state.roomCode}`, { method: 'DELETE' }).catch(() => {});
+            } else {
+              fetch('/api/rooms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: state.roomCode, hostName: state.players[0].name, playerCount: state.players.length })
+              }).catch(() => {});
+            }
+          }
+          break;
+
+        case 'PLAY_AGAIN':
+          if (conn.peer === state.players[0].id) {
+            state.phase = 'LOBBY';
+            state.players.forEach(p => {
+              p.isAlive = true;
+              p.hasVoted = false;
+              p.hasSkippedDiscussion = false;
+              p.isImposter = false;
+              delete (p as any).votedFor;
+            });
+            state.pokemonId = null;
+            state.pokemonName = null;
+            state.pokemonType = null;
+            state.currentRound = 1;
+            state.currentPlayerIndex = 0;
+            state.messages = [];
+            state.discussionEndTime = null;
+            state.votingEndTime = null;
+            state.turnEndTime = null;
+            state.winner = null;
+            state.lastVotedOut = null;
+            broadcastState(state);
+          }
           break;
 
         case 'SEND_MESSAGE':
@@ -196,6 +261,7 @@ export function useP2PGame() {
             const skipCount = state.players.filter(p => p.isAlive && p.hasSkippedDiscussion).length;
             if (skipCount > alivePlayers.length / 2) {
               state.phase = 'VOTING';
+              state.votingEndTime = Date.now() + 60000; // 60 seconds to vote
               state.players.forEach(p => p.hasVoted = false);
             }
             broadcastState(state);
@@ -300,11 +366,12 @@ export function useP2PGame() {
         state.phase = 'RESULT';
       } else {
         state.phase = 'PLAYING';
-        state.currentRound = 1;
+        state.currentRound++;
         const aliveIndices = state.players.map((p, i) => p.isAlive ? i : -1).filter(i => i !== -1);
         state.currentPlayerIndex = aliveIndices[Math.floor(Math.random() * aliveIndices.length)];
-        state.messages = [];
         state.turnEndTime = Date.now() + 25000;
+        state.votingEndTime = null;
+        state.discussionEndTime = null;
       }
     }
   };
@@ -329,10 +396,13 @@ export function useP2PGame() {
       phase: 'LOBBY',
       pokemonId: null,
       pokemonName: null,
+      pokemonType: null,
+      isPrivate: false,
       currentRound: 1,
       currentPlayerIndex: 0,
       messages: [],
       discussionEndTime: null,
+      votingEndTime: null,
       turnEndTime: null,
       winner: null,
       lastVotedOut: null,
@@ -382,26 +452,43 @@ export function useP2PGame() {
       setError('Connection not ready. Please try again in a moment.');
       return;
     }
-    console.log('Connecting to room:', roomCode);
-    const conn = peer.connect(roomCode);
-    
-    conn.on('open', () => {
-      console.log('Connected to host:', roomCode);
-      setConnections([conn]);
-      conn.send({ type: 'JOIN', playerName });
-      conn.on('data', (data) => handleData(data, conn));
-    });
-    
-    conn.on('error', (err) => {
-      console.error('Connection error:', err);
-      setError('Failed to connect to host. Make sure the ID is correct.');
-    });
-    
-    conn.on('close', () => {
-      console.log('Connection to host closed');
-      setError('Connection to host lost');
-      setGameState(null);
-    });
+
+    const sanitizedId = roomCode.trim();
+    if (!sanitizedId) {
+      setError('Invalid Room ID');
+      return;
+    }
+
+    if (sanitizedId === myId) {
+      setError('You cannot join your own room!');
+      return;
+    }
+
+    console.log('Connecting to room:', sanitizedId);
+    try {
+      const conn = peer.connect(sanitizedId);
+      
+      conn.on('open', () => {
+        console.log('Connected to host:', sanitizedId);
+        setConnections([conn]);
+        conn.send({ type: 'JOIN', playerName });
+        conn.on('data', (data) => handleData(data, conn));
+      });
+      
+      conn.on('error', (err) => {
+        console.error('Connection error:', err);
+        setError('Failed to connect to host. Make sure the ID is correct.');
+      });
+      
+      conn.on('close', () => {
+        console.log('Connection to host closed');
+        setError('Connection to host lost');
+        setGameState(null);
+      });
+    } catch (err: any) {
+      console.error('Peer connect error:', err);
+      setError('Invalid Room ID format or connection failed.');
+    }
   };
 
   // Actions
@@ -437,6 +524,14 @@ export function useP2PGame() {
     }
   };
 
+  const playAgain = () => {
+    if (isHost) {
+      handleData({ type: 'PLAY_AGAIN' }, { peer: myId } as any);
+    } else {
+      connections[0]?.send({ type: 'PLAY_AGAIN' });
+    }
+  };
+
   const leaveRoom = () => {
     if (peer) {
       if (isHost) {
@@ -463,20 +558,40 @@ export function useP2PGame() {
 
   // Timer logic for host
   useEffect(() => {
-    if (!isHost || !gameState || gameState.phase !== 'PLAYING' || !gameState.turnEndTime) return;
+    if (!isHost || !gameState) return;
 
     const timer = setInterval(() => {
-      if (Date.now() > gameState.turnEndTime!) {
-        const state = { ...gameState };
+      const now = Date.now();
+      let state = { ...gameState };
+      let changed = false;
+
+      if (state.phase === 'PLAYING' && state.turnEndTime && now > state.turnEndTime) {
         const player = state.players[state.currentPlayerIndex];
         state.messages.push({
           playerId: player.id,
           playerName: player.name,
           text: "... (Timed out)",
-          timestamp: Date.now(),
+          timestamp: now,
           round: state.currentRound,
         });
         advanceTurn(state);
+        changed = true;
+      } else if (state.phase === 'DISCUSSION' && state.discussionEndTime && now > state.discussionEndTime) {
+        state.phase = 'VOTING';
+        state.votingEndTime = Date.now() + 60000; // 60 seconds to vote
+        state.players.forEach(p => p.hasVoted = false);
+        changed = true;
+      } else if (state.phase === 'VOTING' && state.votingEndTime && now > state.votingEndTime) {
+        // Auto-skip for those who haven't voted
+        state.players.filter(p => p.isAlive && !p.hasVoted).forEach(p => {
+          (p as any).votedFor = 'skip';
+          p.hasVoted = true;
+        });
+        tallyVotes(state);
+        changed = true;
+      }
+
+      if (changed) {
         broadcastState(state);
       }
     }, 1000);
@@ -486,7 +601,7 @@ export function useP2PGame() {
 
   // Heartbeat for host
   useEffect(() => {
-    if (!isHost || !myId || !gameState) return;
+    if (!isHost || !myId || !gameState || gameState.isPrivate) return;
     
     const interval = setInterval(() => {
       fetch('/api/rooms', {
@@ -503,6 +618,12 @@ export function useP2PGame() {
     return () => clearInterval(interval);
   }, [isHost, myId, gameState]);
 
+  const togglePrivate = () => {
+    if (isHost) {
+      handleData({ type: 'TOGGLE_PRIVATE' }, { peer: myId } as any);
+    }
+  };
+
   return {
     gameState,
     error,
@@ -514,7 +635,9 @@ export function useP2PGame() {
     sendMessage,
     skipDiscussion,
     vote,
+    playAgain,
     leaveRoom,
+    togglePrivate,
     setError,
     isDisconnected,
     reconnect
