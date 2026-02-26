@@ -148,14 +148,19 @@ export function useP2PGame() {
           const imposterIndex = Math.floor(Math.random() * state.players.length);
           state.players.forEach((p, i) => p.isImposter = i === imposterIndex);
           
-          state.pokemonId = Math.floor(Math.random() * 1010) + 1;
+          const newPokemonId = Math.floor(Math.random() * 1010) + 1;
+          state.pokemonId = newPokemonId;
           
-          fetch(`https://pokeapi.co/api/v2/pokemon/${state.pokemonId}`)
+          fetch(`https://pokeapi.co/api/v2/pokemon/${newPokemonId}`)
             .then(res => res.json())
             .then(data => {
               if (gameStateRef.current) {
                 const newState = { ...gameStateRef.current };
+                newState.players = state.players;
+                newState.pokemonId = newPokemonId;
+                newState.pokemonName = data.name;
                 newState.pokemonType = data.types[0].type.name;
+                newState.pokemonImageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
                 newState.phase = 'PLAYING';
                 newState.currentRound = 1;
                 newState.currentPlayerIndex = Math.floor(Math.random() * newState.players.length);
@@ -169,7 +174,11 @@ export function useP2PGame() {
               console.error(err);
               if (gameStateRef.current) {
                 const newState = { ...gameStateRef.current };
+                newState.players = state.players;
+                newState.pokemonId = newPokemonId;
+                newState.pokemonName = 'Unknown';
                 newState.pokemonType = 'unknown';
+                newState.pokemonImageUrl = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${newPokemonId}.png`;
                 newState.phase = 'PLAYING';
                 newState.currentRound = 1;
                 newState.currentPlayerIndex = Math.floor(Math.random() * newState.players.length);
@@ -211,6 +220,7 @@ export function useP2PGame() {
             state.pokemonId = null;
             state.pokemonName = null;
             state.pokemonType = null;
+            state.pokemonImageUrl = null;
             state.currentRound = 1;
             state.currentPlayerIndex = 0;
             state.messages = [];
@@ -354,6 +364,11 @@ export function useP2PGame() {
       state.lastVotedOut = 'Nobody (Tie or Skip)';
     }
 
+    state.players.forEach(p => {
+      p.hasVoted = false;
+      (p as any).votedFor = null;
+    });
+
     if (state.phase !== 'RESULT') {
       const remainingAlive = state.players.filter(p => p.isAlive);
       const imposterAlive = remainingAlive.some(p => p.isImposter);
@@ -376,6 +391,53 @@ export function useP2PGame() {
     }
   };
 
+  // Host handlers for incoming connections
+  useEffect(() => {
+    if (!peer || !isHost) return;
+
+    const handleConnection = (conn: DataConnection) => {
+      console.log('Incoming connection from:', conn.peer);
+      
+      conn.on('open', () => {
+        console.log('Connection opened with:', conn.peer);
+        setConnections(prev => {
+          if (prev.find(c => c.peer === conn.peer)) return prev;
+          return [...prev, conn];
+        });
+        conn.on('data', (data) => handleData(data, conn));
+      });
+
+      conn.on('close', () => {
+        console.log('Connection closed with:', conn.peer);
+        setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+        // Handle player disconnect
+        if (gameStateRef.current) {
+          const state = { ...gameStateRef.current };
+          const idx = state.players.findIndex(p => p.id === conn.peer);
+          if (idx !== -1) {
+            if (state.phase === 'LOBBY') {
+              state.players.splice(idx, 1);
+            } else {
+              state.players[idx].isAlive = false;
+            }
+            broadcastState(state);
+          }
+        }
+      });
+
+      conn.on('error', (err) => {
+        console.error('Connection error with:', conn.peer, err);
+        setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+      });
+    };
+
+    peer.on('connection', handleConnection);
+
+    return () => {
+      peer.off('connection', handleConnection);
+    };
+  }, [peer, isHost, handleData, broadcastState]);
+
   // Host setup
   const createRoom = (playerName: string) => {
     if (!peer) {
@@ -397,6 +459,7 @@ export function useP2PGame() {
       pokemonId: null,
       pokemonName: null,
       pokemonType: null,
+      pokemonImageUrl: null,
       isPrivate: false,
       currentRound: 1,
       currentPlayerIndex: 0,
@@ -415,35 +478,6 @@ export function useP2PGame() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: myId, hostName: playerName, playerCount: 1 })
     }).catch(err => console.error('Failed to register room:', err));
-
-    peer.on('connection', (conn) => {
-      console.log('Incoming connection from:', conn.peer);
-      conn.on('open', () => {
-        console.log('Connection opened with:', conn.peer);
-        setConnections(prev => {
-          if (prev.find(c => c.peer === conn.peer)) return prev;
-          return [...prev, conn];
-        });
-        conn.on('data', (data) => handleData(data, conn));
-      });
-      conn.on('close', () => {
-        console.log('Connection closed with:', conn.peer);
-        setConnections(prev => prev.filter(c => c.peer !== conn.peer));
-        // Handle player disconnect
-        if (gameStateRef.current) {
-          const state = { ...gameStateRef.current };
-          const idx = state.players.findIndex(p => p.id === conn.peer);
-          if (idx !== -1) {
-            if (state.phase === 'LOBBY') {
-              state.players.splice(idx, 1);
-            } else {
-              state.players[idx].isAlive = false;
-            }
-            broadcastState(state);
-          }
-        }
-      });
-    });
   };
 
   // Client setup
@@ -603,7 +637,7 @@ export function useP2PGame() {
   useEffect(() => {
     if (!isHost || !myId || !gameState || gameState.isPrivate) return;
     
-    const interval = setInterval(() => {
+    const sendHeartbeat = () => {
       fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -613,9 +647,20 @@ export function useP2PGame() {
           playerCount: gameState.players.length 
         })
       }).catch(() => {});
-    }, 30000); // Every 30 seconds
+    };
 
-    return () => clearInterval(interval);
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000); // Every 30 seconds
+
+    const handleUnload = () => {
+      navigator.sendBeacon(`/api/rooms/${myId}/delete`);
+    };
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnload);
+    };
   }, [isHost, myId, gameState]);
 
   const togglePrivate = () => {

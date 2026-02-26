@@ -45,21 +45,10 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [roomInput, setRoomInput] = useState('');
   const [messageInput, setMessageInput] = useState('');
-  const [pokemonName, setPokemonName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (gameState?.pokemonId && !pokemonName) {
-      fetch(`https://pokeapi.co/api/v2/pokemon/${gameState.pokemonId}`)
-        .then(res => res.json())
-        .then(data => setPokemonName(data.name))
-        .catch(err => console.error('Failed to fetch pokemon name', err));
-    }
-    if (gameState?.phase === 'LOBBY') {
-      setPokemonName(null);
-    }
-  }, [gameState?.pokemonId, gameState?.phase]);
+  const pokemonName = gameState?.pokemonName || '';
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -361,12 +350,19 @@ export default function App() {
                 <div className="space-y-4">
                   <p className="text-sm font-bold uppercase opacity-80">Describe this Pokemon:</p>
                   <div className="aspect-square bg-gray-100 border-2 border-black p-4 flex items-center justify-center overflow-hidden">
-                    <img 
-                      src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${gameState.pokemonId}.png`}
-                      alt="Pokemon"
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
+                    {gameState.pokemonImageUrl ? (
+                      <img 
+                        src={gameState.pokemonImageUrl}
+                        alt="Pokemon"
+                        className="w-full h-full object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 opacity-50">
+                        <RefreshCw className="animate-spin" />
+                        <span className="text-[10px] font-bold uppercase">Loading Image...</span>
+                      </div>
+                    )}
                   </div>
                   <p className="text-center text-2xl font-black uppercase tracking-widest">{pokemonName}</p>
                 </div>

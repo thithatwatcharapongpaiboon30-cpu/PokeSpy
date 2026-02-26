@@ -54,6 +54,11 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post("/api/rooms/:id/delete", (req, res) => {
+    publicRooms = publicRooms.filter(r => r.id !== req.params.id);
+    res.json({ success: true });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

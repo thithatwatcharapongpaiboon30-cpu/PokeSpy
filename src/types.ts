@@ -16,6 +16,7 @@ export interface GameState {
   pokemonId: number | null;
   pokemonName: string | null;
   pokemonType: string | null;
+  pokemonImageUrl: string | null;
   isPrivate: boolean;
   currentRound: number;
   currentPlayerIndex: number;
